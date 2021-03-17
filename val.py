@@ -6,6 +6,7 @@ import sys
 import torch
 
 from datasets.lip import LipValDataset
+from datasets.simple_video_dataset import SimpleVideoDataset
 from models.single_person_pose_with_mobilenet import SinglePersonPoseEstimationWithMobileNet
 from modules.calc_pckh import calc_pckh
 from modules.load_state import load_state
@@ -26,7 +27,7 @@ def normalize(img, img_mean, img_scale):
     return img
 
 
-def infer(net, img, scales, base_height, stride, img_mean=[128, 128, 128], img_scale=1/256):
+def infer(net: torch.nn.Module, device: torch.device,img, scales, base_height, stride, img_mean=[128, 128, 128], img_scale=1/256):
     height, width, _ = img.shape
     scales_ratios = [scale * base_height / max(height, width) for scale in scales]
     avg_heatmaps = np.zeros((height, width, 17), dtype=np.float32)
@@ -44,7 +45,7 @@ def infer(net, img, scales, base_height, stride, img_mean=[128, 128, 128], img_s
                padded_img.shape[0] - resized_img.shape[0] - y_offset,
                padded_img.shape[1] - resized_img.shape[1] - x_offset]
 
-        tensor_img = torch.from_numpy(padded_img).permute(2, 0, 1).unsqueeze(0).float().cuda()
+        tensor_img = torch.from_numpy(padded_img).permute(2, 0, 1).unsqueeze(0).float().to(device)
         stages_output = net(tensor_img)
 
         heatmaps = np.transpose(stages_output[-1].squeeze().cpu().data.numpy(), (1, 2, 0))
@@ -56,8 +57,9 @@ def infer(net, img, scales, base_height, stride, img_mean=[128, 128, 128], img_s
     return avg_heatmaps
 
 
-def evaluate(dataset, output_name, net, multiscale=False, visualize=False):
-    net = net.cuda().eval()
+def evaluate(dataset, output_name, net, multiscale=False, visualize=False, device='cpu'):
+    device = torch.device('cpu')
+    net = net.to(device).eval()
     base_height = 256
     scales = [1]
     if multiscale:
@@ -70,12 +72,12 @@ def evaluate(dataset, output_name, net, multiscale=False, visualize=False):
         file_name = sample['file_name']
         img = sample['image']
 
-        avg_heatmaps = infer(net, img, scales, base_height, stride)
+        avg_heatmaps = infer(net, device, img, scales, base_height, stride)
 
         flip = False
         if flip:
             flipped_img = cv2.flip(img, 1)
-            flipped_avg_heatmaps = infer(net, flipped_img, scales, base_height, stride)
+            flipped_avg_heatmaps = infer(net, device, flipped_img, scales, base_height, stride)
             orig_order = [0, 1, 2, 10, 11, 12]
             flip_order = [5, 4, 3, 15, 14, 13]
             for r, l in zip(orig_order, flip_order):
@@ -121,18 +123,24 @@ def evaluate(dataset, output_name, net, multiscale=False, visualize=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset-folder', type=str, required=True, help='path to dataset folder')
-    parser.add_argument('--output-name', type=str, default='detections.csv',
-                        help='name of output file with detected keypoints')
-    parser.add_argument('--checkpoint-path', type=str, required=True, help='path to the checkpoint')
-    parser.add_argument('--multiscale', action='store_true', help='average inference results over multiple scales')
-    parser.add_argument('--visualize', action='store_true', help='show keypoints')
-    args = parser.parse_args()
+    # parser.add_argument('--dataset-folder', type=str, required=True, help='path to dataset folder')
+    # parser.add_argument('--output-name', type=str, default='detections.csv',
+    #                     help='name of output file with detected keypoints')
+    # parser.add_argument('--checkpoint-path', type=str, required=True, help='path to the checkpoint')
+    # parser.add_argument('--multiscale', action='store_true', help='average inference results over multiple scales')
+    # parser.add_argument('--visualize', action='store_true', help='show keypoints')
+    # args = parser.parse_args()
 
     net = SinglePersonPoseEstimationWithMobileNet(num_refinement_stages=5)
-    checkpoint = torch.load(args.checkpoint_path)
+    checkpoint = torch.load('data/checkpoint_epoch_70.pth')
     load_state(net, checkpoint)
 
-    dataset = LipValDataset(args.dataset_folder)
-    evaluate(dataset, args.output_name, net, args.multiscale, args.visualize)
-    pck = calc_pckh(dataset.labels_file_path, args.output_name, eval_num=len(dataset))
+    dataset = SimpleVideoDataset()
+    evaluate(
+        dataset=dataset,
+        output_name='tadam',
+        net=net,
+        multiscale=False,#args.multiscale,
+        visualize=True,#args.visualize
+    )
+    # pck = calc_pckh(dataset.labels_file_path, args.output_name, eval_num=len(dataset))
