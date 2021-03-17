@@ -26,7 +26,7 @@ def normalize(img, img_mean, img_scale):
     return img
 
 
-def infer(net, img, scales, base_height, stride, img_mean=[128, 128, 128], img_scale=1/256):
+def infer(net, img, scales, base_height, stride, img_mean=[128, 128, 128], img_scale=1/256, device='cuda'):
     height, width, _ = img.shape
     scales_ratios = [scale * base_height / max(height, width) for scale in scales]
     avg_heatmaps = np.zeros((height, width, 17), dtype=np.float32)
@@ -44,7 +44,7 @@ def infer(net, img, scales, base_height, stride, img_mean=[128, 128, 128], img_s
                padded_img.shape[0] - resized_img.shape[0] - y_offset,
                padded_img.shape[1] - resized_img.shape[1] - x_offset]
 
-        tensor_img = torch.from_numpy(padded_img).permute(2, 0, 1).unsqueeze(0).float().cuda()
+        tensor_img = torch.from_numpy(padded_img).permute(2, 0, 1).unsqueeze(0).float().to(device)
         stages_output = net(tensor_img)
 
         heatmaps = np.transpose(stages_output[-1].squeeze().cpu().data.numpy(), (1, 2, 0))
